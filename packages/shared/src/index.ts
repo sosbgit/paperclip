@@ -631,6 +631,7 @@ export {
   updateIssueSchema,
   issueExecutionPolicySchema,
   issueExecutionStateSchema,
+  issueReviewRequestSchema,
   issueExecutionWorkspaceSettingsSchema,
   checkoutIssueSchema,
   addIssueCommentSchema,

@@ -14,6 +14,7 @@ import {
 } from "./IssueChatThread";
 import type {
   AskUserQuestionsInteraction,
+  RequestConfirmationInteraction,
   SuggestTasksInteraction,
 } from "../lib/issue-thread-interactions";
 
@@ -211,6 +212,39 @@ function createQuestionInteraction(
       ],
     },
     result: null,
+    ...overrides,
+  };
+}
+
+function createExpiredRequestConfirmationInteraction(
+  overrides: Partial<RequestConfirmationInteraction> = {},
+): RequestConfirmationInteraction {
+  return {
+    id: "interaction-confirmation-expired",
+    companyId: "company-1",
+    issueId: "issue-1",
+    kind: "request_confirmation",
+    title: "Approve the plan",
+    status: "expired",
+    continuationPolicy: "wake_assignee_on_accept",
+    createdByAgentId: "agent-1",
+    createdByUserId: null,
+    resolvedByAgentId: null,
+    resolvedByUserId: "user-1",
+    createdAt: new Date("2026-04-06T12:04:00.000Z"),
+    updatedAt: new Date("2026-04-06T12:05:00.000Z"),
+    resolvedAt: new Date("2026-04-06T12:05:00.000Z"),
+    payload: {
+      version: 1,
+      prompt: "Approve the plan and let the assignee start implementation?",
+      acceptLabel: "Approve plan",
+      rejectLabel: "Request revisions",
+    },
+    result: {
+      version: 1,
+      outcome: "superseded_by_comment",
+      commentId: "comment-1",
+    },
     ...overrides,
   };
 }
@@ -535,6 +569,50 @@ describe("IssueChatThread", () => {
     });
   });
 
+  it("folds expired request confirmations into an activity row by default", async () => {
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            comments={[]}
+            interactions={[createExpiredRequestConfirmationInteraction()]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            currentUserId="user-1"
+            userLabelMap={new Map([["user-1", "Dotta"]])}
+            showComposer={false}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Dotta");
+    expect(container.textContent).toContain("updated this task");
+    expect(container.textContent).toContain("Expired confirmation");
+    expect(container.textContent).not.toContain("Approve the plan");
+
+    const toggleButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Expired confirmation"),
+    );
+    expect(toggleButton).toBeTruthy();
+
+    await act(async () => {
+      toggleButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Approve the plan");
+    expect(container.textContent).toContain("Confirmation expired after comment");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("renders the transcript directly from stable Paperclip messages", () => {
     const root = createRoot(container);
 
@@ -706,7 +784,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("keeps the composer inline with bottom breathing room and a capped editor height", () => {
+  it("keeps the composer floating with a capped editor height", () => {
     const root = createRoot(container);
 
     act(() => {
@@ -724,15 +802,85 @@ describe("IssueChatThread", () => {
       );
     });
 
+    const dock = container.querySelector('[data-testid="issue-chat-composer-dock"]') as HTMLDivElement | null;
+    expect(dock).not.toBeNull();
+    expect(dock?.className).toContain("sticky");
+    expect(dock?.className).toContain("bottom-[calc(env(safe-area-inset-bottom)+20px)]");
+    expect(dock?.className).toContain("z-20");
+
     const composer = container.querySelector('[data-testid="issue-chat-composer"]') as HTMLDivElement | null;
     expect(composer).not.toBeNull();
-    expect(composer?.className).not.toContain("sticky");
-    expect(composer?.className).not.toContain("bottom-0");
-    expect(composer?.className).toContain("pb-[calc(env(safe-area-inset-bottom)+1.5rem)]");
+    expect(composer?.className).toContain("rounded-md");
+    expect(composer?.className).not.toContain("rounded-lg");
+    expect(composer?.className).toContain("p-[15px]");
 
     const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
     expect(editor?.dataset.contentClassName).toContain("max-h-[28dvh]");
     expect(editor?.dataset.contentClassName).toContain("overflow-y-auto");
+    expect(editor?.dataset.contentClassName).not.toContain("min-h-[72px]");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("renders the bottom spacer with zero height until the user has submitted", () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            comments={[{
+              id: "comment-spacer-1",
+              companyId: "company-1",
+              issueId: "issue-1",
+              authorAgentId: null,
+              authorUserId: "user-1",
+              body: "hello",
+              createdAt: new Date("2026-04-22T12:00:00.000Z"),
+              updatedAt: new Date("2026-04-22T12:00:00.000Z"),
+            }]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const spacer = container.querySelector('[data-testid="issue-chat-bottom-spacer"]') as HTMLDivElement | null;
+    expect(spacer).not.toBeNull();
+    expect(spacer?.style.height).toBe("0px");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("omits the bottom spacer when the composer is hidden", () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            comments={[]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            showComposer={false}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const spacer = container.querySelector('[data-testid="issue-chat-bottom-spacer"]');
+    expect(spacer).toBeNull();
 
     act(() => {
       root.unmount();

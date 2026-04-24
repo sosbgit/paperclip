@@ -119,6 +119,7 @@ export type {
   IssueExecutionStage,
   IssueExecutionStageParticipant,
   IssueExecutionStagePrincipal,
+  IssueReviewRequest,
   IssueExecutionDecision,
   IssueComment,
   IssueThreadInteractionActorFields,
